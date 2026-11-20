@@ -32,10 +32,20 @@ LuCI 侧跟随 **ImmortalWrt 24.10**（opkg + 客户端渲染的 LuCI JS 框架�
 
 ## 安装
 
-从 [Releases](../../releases) 下对应架构的 ipk，传到路由器上：
+从 [Releases](../../releases) 下对应架构的 ipk：
+
+| 文件 | 用在哪 |
+|---|---|
+| `luci-app-airhand_<ver>_x86_64.ipk` | x86 软路由 / 虚拟机 |
+| `luci-app-airhand_<ver>_aarch64_cortex-a53.ipk` | airoha an7581 |
+
+**目前可用的稳定包是 [`v0.2.3-a197653`](../../releases/tag/v0.2.3-a197653)** —— 它是按上游 `v0.2.3` 标签编译的，
+能和官方 0.2.3 客户端配对上。`weekly` 那个预发布包跟的是上游 `main`（0.3.x），普通用户先别用。
+
+传到路由器上：
 
 ```sh
-opkg install luci-app-airhand_<version>_<arch>.ipk
+opkg install luci-app-airhand_0.2.3-1_x86_64.ipk     # 换成你的架构
 ```
 
 装完之后 LuCI 里会出现 **服务 → Airhand**，两个服务默认已启用（`airhand-server`、`airhand-web`）。
@@ -141,8 +151,8 @@ airhand 是 WIP 项目，协议会变：
 - `main`（0.3.x）明确要求**中继、控制台、客户端同 revision**，混搭会连不上。
 - `v0.2.3` 起协议支持版本协商，`0.2.3` 的客户端能配 `0.2.3` 的服务端。
 
-所以：**用官方 0.2.3 安装包当被控端时，请手动 dispatch 一次 `ref=v0.2.3` 来出包**，
-不要直接用 `weekly`（那是 main）。等上游出正式版把 `ref` 调过去就行。
+所以：**用官方 0.2.3 安装包当被控端时，用 [`v0.2.3-a197653`](../../releases/tag/v0.2.3-a197653) 那个包**，
+不要用 `weekly`（那是 main）。等上游出正式版，改 `ref` 重新 dispatch 一次就行。
 
 ## 目录结构
 
