@@ -133,9 +133,12 @@ jobs:
           key: ${{ matrix.rust }}
       - name: 安装 zig 与 cargo-zigbuild
         run: |
-          python3 -m pip install --disable-pip-version-check --break-system-packages "ziglang==${ZIG_VERSION}"
-          cargo install cargo-zigbuild --locked
+          set -e
+          curl -fsSL "https://ziglang.org/download/${ZIG_VERSION}/zig-linux-x86_64-${ZIG_VERSION}.tar.xz" -o /tmp/zig.tar.xz
+          sudo tar -xJf /tmp/zig.tar.xz -C /opt
+          sudo ln -sf "/opt/zig-linux-x86_64-${ZIG_VERSION}/zig" /usr/local/bin/zig
           zig version
+          cargo install cargo-zigbuild --locked
       - name: 编译中继（airhand-server）
         working-directory: src
         run: cargo zigbuild --release --locked -p airhand-server --target ${{ matrix.rust }}
