@@ -104,17 +104,23 @@ server_fp = "<中继证书指纹>"         # 或用页面上的「证书指纹�
 
 改完重启客户端，托盘菜单里能看到 6 位控制码。
 
-## 公网访问（A 方案：端口映射）
+## 公网访问
 
-LuCI 页面上有「开放公网访问」按钮，等价于往 `/etc/config/firewall` 加一条 redirect：
+**端口映射不归插件管**，用 OpenWrt 自己的方式做：LuCI → 网络 → 防火墙 → 端口转发，
+把 `wan:8080/tcp` 转到 `<路由器 LAN IP>:8080`。等价命令行：
 
 ```sh
-uci show firewall | grep airhand     # 看它加了什么
-/usr/libexec/airhand/wan-expose.sh on 8080
-/usr/libexec/airhand/wan-expose.sh off
+uci add firewall redirect
+uci set firewall.@redirect[-1].name='airhand-web'
+uci set firewall.@redirect[-1].target='DNAT'
+uci set firewall.@redirect[-1].src='wan'
+uci set firewall.@redirect[-1].src_dport='8080'
+uci set firewall.@redirect[-1].dest='lan'
+uci set firewall.@redirect[-1].dest_ip='192.168.1.1'
+uci set firewall.@redirect[-1].dest_port='8080'
+uci set firewall.@redirect[-1].proto='tcp'
+uci commit firewall && /etc/init.d/firewall reload
 ```
-
-也可以自己映射，效果一样：`wan:8080/tcp → <路由器 LAN IP>:8080`。
 
 从外网访问就是 `https://<公网 IP 或 DDNS>:8080`。
 
@@ -135,7 +141,7 @@ WebCodecs 硬解只在安全上下文可用，用 `http://` 打开页面会把�
 
 | 触发 | 行为 |
 |---|---|
-| push 到 `main` / PR | 编译两个架构 + 打包 + 冒烟测试，产物存 artifact |
+| push 到 `main` / PR | 编译两个架构 + 打包 + 冒烟测试 + **SDK 里真编一遍**，产物存 artifact |
 | push `v*` tag | 同上，并发 Release |
 | **每周一 03:23 UTC（定时）** | 拉 airhand **最新 main 源码**重新编译，覆盖 `weekly` 这个预发布 Release |
 | 手动 dispatch | 可指定 `ref`（tag/分支/commit），勾 `release` 才发布 |
@@ -143,6 +149,10 @@ WebCodecs 硬解只在安全上下文可用，用 `http://` 打开页面会把�
 编译方式是 **cargo-zigbuild + musl 静态链接**，产物无动态依赖，直接丢进 OpenWrt 就能跑。
 冒烟测试在 x86_64 runner 上真实拉起两个服务：检查 UDP 4433 在听、证书和 SQLite 生成、
 指纹脚本和日志一致、网页控制台 401/200/HTTPS 首页正常，以及 ipk 结构和静态链接。
+
+`SDK` 那两个 job 会下载对应 target 的 ImmortalWrt SDK，把本仓库的 `luci-app-airhand/`
+当普通 package 塞进去，`make package/luci-app-airhand/compile`，然后检查产出的 ipk
+架构对不对，x86_64 那份还会再跑一遍冒烟测试。也就是说 `Makefile` 不是摆设，每次 CI 都真编。
 
 ### 版本兼容很重要
 
@@ -154,15 +164,42 @@ airhand 是 WIP 项目，协议会变：
 所以：**用官方 0.2.3 安装包当被控端时，用 [`v0.2.3-a197653`](../../releases/tag/v0.2.3-a197653) 那个包**，
 不要用 `weekly`（那是 main）。等上游出正式版，改 `ref` 重新 dispatch 一次就行。
 
+## 在 SDK / 固件里编译（可选）
+
+不想用现成 ipk、想自己编固件把插件烤进去的话，`luci-app-airhand/` 是一个标准的 OpenWrt package：
+
+```sh
+# 拿 SDK（版本和 target 自己按需改）
+sh scripts/fetch-sdk.sh x86 64 sdk        # 或 airoha an7581
+
+# 把包放进 SDK，并准备好预编译二进制（不准备就从 release 的 bin 标签下载）
+cp -r luci-app-airhand sdk/package/
+mkdir -p sdk/package/luci-app-airhand/prebuilt/x86_64
+cp airhand-x86_64.tar.gz sdk/package/luci-app-airhand/prebuilt/x86_64/
+
+cd sdk
+make defconfig
+make package/luci-app-airhand/compile V=s
+```
+
+放进固件编译树也是同样两步：把 `luci-app-airhand/` 扔进 `package/`，二进制按架构放进
+`prebuilt/<arch>/`，然后在 menuconfig 里勾上 `LuCI → 3. Applications → luci-app-airhand`。
+
+`Makefile` 里的 `PKG_VERSION` 只是包的版本号，二进制来源由 `prebuilt/` 或 `AIRHAND_BIN_TAG`
+（默认 `bin` 这个滚动 release）决定。**二进制必须和客户端版本对得上**，见上一节。
+
 ## 目录结构
 
 ```
 .github/workflows/build.yml           CI
 scripts/fetch-airhand.sh              按 ref 拉上游源码，解析版本号
+scripts/fetch-sdk.sh                  下 ImmortalWrt SDK 并解压（CI 的 SDK job 用）
 scripts/package-ipk.sh                打 ipk（ar + control.tar.gz + data.tar.gz）
 scripts/smoke-test.sh                 解包 ipk 并实机跑两个服务
+luci-app-airhand/Makefile             OpenWrt 包定义（SDK / 源码树里编译用）
 luci-app-airhand/root/                UCI 配置、init 脚本、辅助脚本、menu.d、acl.d
 luci-app-airhand/htdocs/              LuCI JS 视图（/www/luci-static/resources/view/airhand/）
+docs/luci-preview.html                LuCI 页面静态预览（不打包进 ipk）
 ```
 
 ## 已知限制

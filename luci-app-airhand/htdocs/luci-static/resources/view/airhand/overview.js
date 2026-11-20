@@ -166,18 +166,6 @@ return view.extend({
 			return runHelper('/etc/init.d/airhand-web', [ 'restart' ], _('控制台已重启'));
 		};
 
-		o = s.option(form.Button, '_airhand_wan_on', _('开放公网访问'));
-		o.inputstyle = 'action';
-		o.onclick = function() {
-			return runHelper('/usr/libexec/airhand/wan-expose.sh', [ 'on' ]);
-		};
-
-		o = s.option(form.Button, '_airhand_wan_off', _('关闭公网访问'));
-		o.inputstyle = 'action';
-		o.onclick = function() {
-			return runHelper('/usr/libexec/airhand/wan-expose.sh', [ 'off' ]);
-		};
-
 		return m.render();
 	}
 });

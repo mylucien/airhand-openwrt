@@ -189,12 +189,22 @@ jobs:
           path: dlbin
       - name: 展开二进制
         run: mkdir -p bin && tar xzf "dlbin/airhand-${{ matrix.arch }}.tar.gz" -C bin
-      - name: 打包
+      - name: 打包 ipk
         run: sh scripts/package-ipk.sh "${{ matrix.arch }}" bin www "${{ needs.prepare.outputs.version }}" dist
+      - name: 打预编译包（给 Makefile / SDK 用）
+        run: |
+          set -e
+          rm -rf rel
+          mkdir -p rel/www
+          cp bin/airhand-server bin/airhand-web rel/
+          cp -a www/. rel/www/
+          tar czf "dist/airhand-${{ matrix.arch }}.tar.gz" -C rel .
+          cd dist
+          sha256sum "airhand-${{ matrix.arch }}.tar.gz" > "airhand-${{ matrix.arch }}.tar.gz.sha256"
       - uses: actions/upload-artifact@v4
         with:
           name: ipk-${{ matrix.arch }}
-          path: dist/*.ipk
+          path: dist/*
           if-no-files-found: error
 
   smoke:
@@ -212,9 +222,62 @@ jobs:
       - name: 运行冒烟测试
         run: sh scripts/smoke-test.sh dist/*.ipk
 
+  sdk:
+    name: SDK 编译验证 ${{ matrix.arch }}
+    needs: [ prepare, package ]
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            board: x86
+            subtarget: '64'
+          - arch: aarch64_cortex-a53
+            board: airoha
+            subtarget: an7581
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: ipk-${{ matrix.arch }}
+          path: dl
+      - name: 放入预编译二进制
+        run: |
+          set -e
+          mkdir -p "luci-app-airhand/prebuilt/${{ matrix.arch }}"
+          cp "dl/airhand-${{ matrix.arch }}.tar.gz" "luci-app-airhand/prebuilt/${{ matrix.arch }}/"
+          ls -l "luci-app-airhand/prebuilt/${{ matrix.arch }}/"
+      - name: 下载 ImmortalWrt SDK
+        run: sh scripts/fetch-sdk.sh "${{ matrix.board }}" "${{ matrix.subtarget }}" sdk
+      - name: 在 SDK 里编译这个包
+        run: |
+          set -eo pipefail
+          cp -r luci-app-airhand sdk/package/
+          cd sdk
+          make defconfig
+          make package/luci-app-airhand/compile V=s -j"$(nproc)" 2>&1 | tail -80
+      - name: 检查 SDK 产物
+        run: |
+          set -e
+          find sdk/bin -name 'luci-app-airhand*.ipk' -printf '%p %s bytes\n'
+          ipk=$(find sdk/bin -name 'luci-app-airhand*.ipk' | head -1)
+          [ -n "$ipk" ] || { echo "::error::SDK 没有产出 ipk"; exit 1; }
+          arch=$(ar p "$ipk" control.tar.gz | tar xzO ./control | sed -n 's/^Architecture: //p')
+          ver=$(ar p "$ipk" control.tar.gz | tar xzO ./control | sed -n 's/^Version: //p')
+          echo "SDK 包：arch=$arch version=$ver"
+          [ "$arch" = "${{ matrix.arch }}" ] || { echo "::error::Architecture 不是 ${{ matrix.arch }}"; exit 1; }
+          ar t "$ipk"
+      - name: 冒烟测试 SDK 产物（x86_64）
+        if: matrix.arch == 'x86_64'
+        run: |
+          set -e
+          ipk=$(find sdk/bin -name 'luci-app-airhand*.ipk' | head -1)
+          sh scripts/smoke-test.sh "$ipk"
+
   release:
     name: 发布
-    needs: [ prepare, package, smoke ]
+    needs: [ prepare, package, smoke, sdk ]
     if: |
       startsWith(github.ref, 'refs/tags/v') ||
       github.event_name == 'schedule' ||
@@ -260,3 +323,18 @@ jobs:
             # 上传到路由器后
             opkg install luci-app-airhand_*_<arch>.ipk
             ```
+      - name: 更新 bin 标签（给 Makefile 下载预编译二进制）
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: bin
+          name: 预编译二进制（供 luci-app-airhand/Makefile 下载）
+          prerelease: true
+          make_latest: false
+          files: |
+            dist/airhand-*.tar.gz
+            dist/airhand-*.tar.gz.sha256
+          body: |
+            这是滚动更新的预编译二进制，给 `luci-app-airhand/Makefile` 的 `Build/Prepare` 用。
+
+            来源：`${{ needs.prepare.outputs.ref }}` @ `${{ needs.prepare.outputs.sha }}`（airhand ${{ needs.prepare.outputs.version }}）
+            每次 CI 跑完会覆盖这里的文件，不保证长期稳定；要可复现请用上面那个版本化的 release。

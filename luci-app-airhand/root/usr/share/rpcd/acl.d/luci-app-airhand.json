@@ -8,12 +8,11 @@
 			"uci": [ "airhand" ]
 		},
 		"write": {
-			"uci": [ "airhand", "firewall" ],
+			"uci": [ "airhand" ],
 			"file": {
 				"/etc/init.d/airhand-server": [ "exec" ],
 				"/etc/init.d/airhand-web": [ "exec" ],
-				"/usr/libexec/airhand/fingerprint.sh": [ "exec" ],
-				"/usr/libexec/airhand/wan-expose.sh": [ "exec" ]
+				"/usr/libexec/airhand/fingerprint.sh": [ "exec" ]
 			}
 		}
 	}

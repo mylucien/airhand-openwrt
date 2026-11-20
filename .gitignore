@@ -3,6 +3,8 @@ out/
 www/
 dist/
 src/
+sdk/
+luci-app-airhand/prebuilt/
 *.ipk
 *.tar.gz
 .DS_Store
