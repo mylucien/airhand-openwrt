@@ -53,8 +53,15 @@ opkg install luci-app-airhand_<ver>-1_x86_64.ipk
 apk add --allow-untrusted luci-app-airhand-<ver>-r1.apk
 ```
 
-**注意版本要跟被控端客户端对得上**：现在 Releases 里同时有 `airhand 0.2.3` 和 `0.3.1` 两条线的产物，
-官方客户端安装包是 0.2.3，所以优先用 **airhand 版本 0.2.3** 的那个 release，别用 `weekly`（那是 main）。
+**版本必须和被控端客户端一致**。上游已经发布了 `v0.3.1`，所以现在两端都用 0.3.1：
+
+| 路由器包 | 对应客户端 |
+|---|---|
+| airhand **0.3.1**（推荐） | `Airhand_0.3.1_x64-setup.exe` |
+| airhand 0.2.3 | `Airhand_0.2.3_x64-setup.exe` |
+
+混装（比如 0.3.1 服务端配 0.2.3 客户端）会连不上 —— 0.3.x 起要求中继、控制台、客户端同 revision。
+`weekly` 跟的是上游 main，只在 main 与最新 tag 之间有新提交时才和 tag 不同。
 
 装完之后 LuCI 里会出现 **服务 → Airhand**，两个服务默认已启用（`airhand-server`、`airhand-web`）。
 服务日志：`logread -e airhand`。
