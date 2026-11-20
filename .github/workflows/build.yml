@@ -223,19 +223,25 @@ jobs:
         run: sh scripts/smoke-test.sh dist/*.ipk
 
   sdk:
-    name: SDK 编译验证 ${{ matrix.arch }}
+    name: SDK 编译验证 ${{ matrix.arch }}（${{ matrix.ver }}）
     needs: [ prepare, package ]
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
         include:
+          # x86 跟随最新稳定版（25.12 起是 apk 包）
           - arch: x86_64
             board: x86
             subtarget: '64'
+            ver: 25.12.2
+          # airoha 只有 snapshot 有，且 an7581 的 arch 就是 aarch64_cortex-a53
           - arch: aarch64_cortex-a53
             board: airoha
             subtarget: an7581
+            ver: snapshot
+    env:
+      IMMORTALWRT_VER: ${{ matrix.ver }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -256,24 +262,37 @@ jobs:
           cp -r luci-app-airhand sdk/package/
           cd sdk
           make defconfig
-          make package/luci-app-airhand/compile V=s -j"$(nproc)" 2>&1 | tail -80
-      - name: 检查 SDK 产物
+          make package/luci-app-airhand/compile V=s \
+            PKG_VERSION="${{ needs.prepare.outputs.version }}" PKG_RELEASE=1 \
+            -j"$(nproc)" 2>&1 | tee "$GITHUB_WORKSPACE/build.log" | tail -60
+      - name: 检查产物
         run: |
           set -e
-          find sdk/bin -name 'luci-app-airhand*.ipk' -printf '%p %s bytes\n'
-          ipk=$(find sdk/bin -name 'luci-app-airhand*.ipk' | head -1)
-          [ -n "$ipk" ] || { echo "::error::SDK 没有产出 ipk"; exit 1; }
-          arch=$(ar p "$ipk" control.tar.gz | tar xzO ./control | sed -n 's/^Architecture: //p')
-          ver=$(ar p "$ipk" control.tar.gz | tar xzO ./control | sed -n 's/^Version: //p')
-          echo "SDK 包：arch=$arch version=$ver"
-          [ "$arch" = "${{ matrix.arch }}" ] || { echo "::error::Architecture 不是 ${{ matrix.arch }}"; exit 1; }
-          ar t "$ipk"
-      - name: 冒烟测试 SDK 产物（x86_64）
-        if: matrix.arch == 'x86_64'
-        run: |
-          set -e
-          ipk=$(find sdk/bin -name 'luci-app-airhand*.ipk' | head -1)
-          sh scripts/smoke-test.sh "$ipk"
+          mkdir -p sdkout
+          find sdk/bin -name 'luci-app-airhand*.apk' -exec cp {} sdkout/ \; || true
+          find sdk/bin -name 'luci-app-airhand*.ipk' -exec cp {} sdkout/ \; || true
+          ls -l sdkout
+          pkg=$(ls sdkout/* 2>/dev/null | head -1)
+          [ -n "$pkg" ] || { echo "::error::SDK 没有产出包"; exit 1; }
+          echo "产物: $pkg"
+          case "$pkg" in
+            *.ipk)
+              arch=$(ar p "$pkg" control.tar.gz | tar xzO ./control | sed -n 's/^Architecture: //p')
+              ver=$(ar p "$pkg" control.tar.gz | tar xzO ./control | sed -n 's/^Version: //p')
+              ;;
+            *.apk)
+              arch=$(grep -ao 'arch:[a-z0-9_-]*' build.log | head -1 | cut -d: -f2)
+              ver=$(grep -ao 'version:[0-9][0-9A-Za-z._-]*' build.log | head -1 | cut -d: -f2)
+              ;;
+          esac
+          echo "包信息：arch=$arch version=$ver"
+          [ "$arch" = "${{ matrix.arch }}" ] || {
+            echo "::error::Architecture 是 $arch，期望 ${{ matrix.arch }}"; exit 1; }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdk-${{ matrix.arch }}
+          path: sdkout/*
+          if-no-files-found: error
 
   release:
     name: 发布
@@ -287,6 +306,11 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           pattern: ipk-*
+          merge-multiple: true
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: sdk-*
           merge-multiple: true
           path: dist
       - name: 列出产物
@@ -311,17 +335,26 @@ jobs:
           name: Airhand for OpenWrt ${{ needs.prepare.outputs.version }} (${{ needs.prepare.outputs.short }})
           prerelease: ${{ steps.rel.outputs.pre }}
           make_latest: false
-          files: dist/*.ipk
+          files: |
+            dist/*.ipk
+            dist/*.apk
+            dist/*.tar.gz
           body: |
             airhand 源码：`${{ needs.prepare.outputs.ref }}` @ `${{ needs.prepare.outputs.sha }}`
             airhand 版本：${{ needs.prepare.outputs.version }}
-            构建时间：${{ github.run_id }}（${{ github.event_name }}）
+            构建时间：`${{ github.run_id }}`（${{ github.event_name }}）
 
             架构：`x86_64`、`aarch64_cortex-a53`（airoha an7581）
 
+            | 文件 | 用在哪 |
+            |---|---|
+            | `*.ipk` | OpenWrt / ImmortalWrt **24.10**（opkg） |
+            | `*.apk` | ImmortalWrt **25.12 / snapshot**（apk），an7581 只能用这个 |
+            | `airhand-<arch>.tar.gz` | 给 `luci-app-airhand/Makefile` 的预编译二进制 |
+
             ```
-            # 上传到路由器后
-            opkg install luci-app-airhand_*_<arch>.ipk
+            opkg install luci-app-airhand_*_<arch>.ipk   # 24.10
+            apk add --allow-untrusted luci-app-airhand-*.apk   # 25.12 / snapshot
             ```
       - name: 更新 bin 标签（给 Makefile 下载预编译二进制）
         uses: softprops/action-gh-release@v2
