@@ -263,7 +263,7 @@ jobs:
           cd sdk
           make defconfig
           make package/luci-app-airhand/compile V=s \
-            PKG_VERSION="${{ needs.prepare.outputs.version }}" PKG_RELEASE=1 \
+            PKG_VERSION="${{ needs.prepare.outputs.version }}" \
             -j"$(nproc)" 2>&1 | tee "$GITHUB_WORKSPACE/build.log" | tail -60
       - name: 检查产物
         run: |

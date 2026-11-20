@@ -104,6 +104,14 @@ echo "   sh =$SH_FP"
 [ "$LOG_FP" = "$SH_FP" ] || fail "fingerprint.sh 算出的指纹和服务器日志不一致"
 echo "   ok"
 
+# 不带参数调用（LuCI 按钮就是这种用法）：不能因为 set -u 直接崩掉
+NOARG_OUT=$(sh "$WORK/root/usr/libexec/airhand/fingerprint.sh" 2>&1) || true
+case "$NOARG_OUT" in
+	*"parameter not set"*|*"unbound variable"*)
+		fail "不带参数调用时崩了：$NOARG_OUT" ;;
+esac
+echo "   不带参数调用：正常报错退出 ok"
+
 echo "== 5. 启动网页控制台 =="
 mkdir -p "$WORK/web"
 AIRHAND_WEB_LISTEN=127.0.0.1:8080 \
