@@ -1,0 +1,8 @@
+build/
+out/
+www/
+dist/
+src/
+*.ipk
+*.tar.gz
+.DS_Store

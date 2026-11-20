@@ -1,0 +1,257 @@
+name: build
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+  schedule:
+    - cron: '23 3 * * 1'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'airhand 源码 ref（tag / 分支 / commit）'
+        required: false
+        default: main
+      release:
+        description: '手动触发时是否发布 Release'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+env:
+  AIRHAND_REPO: sqlpxc/airhand
+  CARGO_TERM_COLOR: always
+  ZIG_VERSION: '0.13.0'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  prepare:
+    name: 解析源码版本
+    runs-on: ubuntu-24.04
+    outputs:
+      ref: ${{ steps.src.outputs.ref }}
+      sha: ${{ steps.src.outputs.sha }}
+      short: ${{ steps.src.outputs.short }}
+      version: ${{ steps.src.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: 拉取 airhand 源码
+        id: src
+        env:
+          INPUT_REF: ${{ github.event.inputs.ref }}
+        run: sh scripts/fetch-airhand.sh "${INPUT_REF:-main}" src
+
+  lint:
+    name: 脚本与配置静态检查
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: shell 语法
+        run: |
+          set -e
+          for f in scripts/*.sh luci-app-airhand/root/etc/init.d/* \
+                   luci-app-airhand/root/usr/libexec/airhand/* \
+                   luci-app-airhand/root/etc/uci-defaults/*; do
+            [ -f "$f" ] || continue
+            echo "sh -n $f"
+            sh -n "$f"
+          done
+      - name: JSON 语法
+        run: |
+          set -e
+          for f in $(git ls-files '*.json'); do
+            echo "jq $f"
+            jq empty "$f"
+          done
+      - name: LuCI 视图 JS 语法
+        run: |
+          set -e
+          for f in $(git ls-files '*.js'); do
+            echo "check $f"
+            node -e 'new Function(require("fs").readFileSync(process.argv[1],"utf8"))' "$f"
+          done
+
+  ui:
+    name: 构建网页控制台前端
+    needs: prepare
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: 拉取 airhand 源码
+        run: sh scripts/fetch-airhand.sh "${{ needs.prepare.outputs.ref }}" src
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: src/client/package-lock.json
+      - name: npm ci
+        working-directory: src/client
+        run: npm ci --no-audit --no-fund
+      - name: npm run build
+        working-directory: src/client
+        run: npm run build
+      - name: 打包 dist
+        run: tar czf www.tar.gz -C src/client/dist .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: www
+          path: www.tar.gz
+          if-no-files-found: error
+
+  binaries:
+    name: 编译 ${{ matrix.arch }}
+    needs: prepare
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            rust: x86_64-unknown-linux-musl
+            note: 软路由 / 虚拟机
+          - arch: aarch64_cortex-a53
+            rust: aarch64-unknown-linux-musl
+            note: airoha an7581
+    steps:
+      - uses: actions/checkout@v4
+      - name: 拉取 airhand 源码
+        run: sh scripts/fetch-airhand.sh "${{ needs.prepare.outputs.ref }}" src
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            src -> target
+            src/web -> target
+          key: ${{ matrix.rust }}
+      - name: 安装 zig 与 cargo-zigbuild
+        run: |
+          python3 -m pip install --disable-pip-version-check --break-system-packages "ziglang==${ZIG_VERSION}"
+          cargo install cargo-zigbuild --locked
+          zig version
+      - name: 编译中继（airhand-server）
+        working-directory: src
+        run: cargo zigbuild --release --locked -p airhand-server --target ${{ matrix.rust }}
+      - name: 编译网页控制台（airhand-web）
+        working-directory: src/web
+        run: cargo zigbuild --release --locked --target ${{ matrix.rust }}
+      - name: 收集产物
+        run: |
+          set -e
+          mkdir -p out
+          cp "src/target/${{ matrix.rust }}/release/airhand-server" out/
+          cp "src/web/target/${{ matrix.rust }}/release/airhand-web" out/
+          file out/* || true
+          for b in out/*; do
+            if readelf -l "$b" | grep -q INTERP; then
+              echo "::error::$b 是动态链接"
+              exit 1
+            fi
+          done
+          tar czf "airhand-${{ matrix.arch }}.tar.gz" -C out .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bin-${{ matrix.arch }}
+          path: airhand-${{ matrix.arch }}.tar.gz
+          if-no-files-found: error
+
+  package:
+    name: 打包 ipk ${{ matrix.arch }}
+    needs: [ prepare, ui, binaries ]
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [ x86_64, aarch64_cortex-a53 ]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: www
+          path: dl
+      - name: 展开前端
+        run: mkdir -p www && tar xzf dl/www.tar.gz -C www
+      - uses: actions/download-artifact@v4
+        with:
+          name: bin-${{ matrix.arch }}
+          path: dlbin
+      - name: 展开二进制
+        run: mkdir -p bin && tar xzf "dlbin/airhand-${{ matrix.arch }}.tar.gz" -C bin
+      - name: 打包
+        run: sh scripts/package-ipk.sh "${{ matrix.arch }}" bin www "${{ needs.prepare.outputs.version }}" dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ipk-${{ matrix.arch }}
+          path: dist/*.ipk
+          if-no-files-found: error
+
+  smoke:
+    name: 冒烟测试（x86_64 实机运行）
+    needs: [ prepare, package ]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: ipk-x86_64
+          path: dist
+      - name: 列出产物
+        run: ls -l dist
+      - name: 运行冒烟测试
+        run: sh scripts/smoke-test.sh dist/*.ipk
+
+  release:
+    name: 发布
+    needs: [ prepare, package, smoke ]
+    if: |
+      startsWith(github.ref, 'refs/tags/v') ||
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.release == 'true')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: ipk-*
+          merge-multiple: true
+          path: dist
+      - name: 列出产物
+        run: ls -l dist
+      - name: 决定 tag
+        id: rel
+        run: |
+          set -e
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            tag="${GITHUB_REF_NAME}"; pre=false
+          elif [ "${GITHUB_EVENT_NAME}" = "schedule" ]; then
+            tag="weekly"; pre=true
+          else
+            tag="v${{ needs.prepare.outputs.version }}-${{ needs.prepare.outputs.short }}"; pre=true
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "pre=$pre" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag prerelease=$pre"
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.rel.outputs.tag }}
+          name: Airhand for OpenWrt ${{ needs.prepare.outputs.version }} (${{ needs.prepare.outputs.short }})
+          prerelease: ${{ steps.rel.outputs.pre }}
+          make_latest: false
+          files: dist/*.ipk
+          body: |
+            airhand 源码：`${{ needs.prepare.outputs.ref }}` @ `${{ needs.prepare.outputs.sha }}`
+            airhand 版本：${{ needs.prepare.outputs.version }}
+            构建时间：${{ github.run_id }}（${{ github.event_name }}）
+
+            架构：`x86_64`、`aarch64_cortex-a53`（airoha an7581）
+
+            ```
+            # 上传到路由器后
+            opkg install luci-app-airhand_*_<arch>.ipk
+            ```
