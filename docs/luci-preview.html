@@ -139,11 +139,11 @@ select{appearance:none;background-image:url("data:image/svg+xml;utf8,<svg xmlns=
     <div class="content">
       <div class="card">
         <h1>Airhand 远程桌面</h1>
-        <p class="desc">中继服务器和网页控制台都跑在这台路由器上。被控电脑安装 Airhand 客户端，把中继地址指向本机，然后用浏览器打开本机端口即可控制。</p>
+        <p class="desc">中继服务器与网页控制台均在本机运行。被控端安装 Airhand 客户端后，将其配置中的中继地址指向本机，即可通过浏览器访问本机端口进行控制。</p>
 
         <section>
           <h2>中继服务器</h2>
-          <div class="sub">QUIC，UDP 4433。只负责分配控制码和转发字节，端到端加密在两端完成。</div>
+          <div class="sub">QUIC / UDP 4433。仅负责分配控制码与转发字节，端到端加密由两端协商完成。</div>
 
           <div class="field-row">
             <label>启用</label>
@@ -156,15 +156,15 @@ select{appearance:none;background-image:url("data:image/svg+xml;utf8,<svg xmlns=
             <label>监听地址</label>
             <div class="field">
               <input type="text" value="0.0.0.0:4433">
-              <div class="help">UDP 端口，默认 0.0.0.0:4433。被控电脑和网页控制台都连这个端口。</div>
+              <div class="help">UDP 监听地址，默认 0.0.0.0:4433。被控端与网页控制台均连接此端口。</div>
             </div>
           </div>
 
           <div class="field-row">
-            <label>每台被控端最多会话数</label>
+            <label>最大会话数</label>
             <div class="field">
               <input type="text" value="4" style="max-width:120px">
-              <div class="help">同一台被控电脑最多允许几个控制端同时连接。</div>
+              <div class="help">单台被控端允许同时建立的最大会话数，默认 4。</div>
             </div>
           </div>
 
@@ -172,7 +172,7 @@ select{appearance:none;background-image:url("data:image/svg+xml;utf8,<svg xmlns=
             <label>证书 SAN</label>
             <div class="field">
               <input type="text" value="airhand,localhost">
-              <div class="help">自动生成证书时写入的域名或 IP，逗号分隔。客户端按指纹校验，这里通常不用改。</div>
+              <div class="help">自动签发证书时写入的域名或 IP，以逗号分隔。客户端以指纹方式校验，通常无需修改。</div>
             </div>
           </div>
 
@@ -187,14 +187,14 @@ select{appearance:none;background-image:url("data:image/svg+xml;utf8,<svg xmlns=
             <label>数据目录</label>
             <div class="field">
               <input type="text" value="/etc/airhand/relay">
-              <div class="help">证书和 SQLite 数据库（控制码绑定表）所在目录，必须可写并且能持久保存。</div>
+              <div class="help">存放 TLS 证书与 SQLite 数据库（控制码绑定表）的目录。须可写且能持久保留。</div>
             </div>
           </div>
 
           <div class="field-row">
             <label>&nbsp;</label>
             <div class="field inline">
-              <button class="btn" id="btn-fp">证书指纹</button>
+              <button class="btn" id="btn-fp">查看证书指纹</button>
               <button class="btn" id="btn-restart-relay">重启中继</button>
             </div>
           </div>
@@ -202,7 +202,7 @@ select{appearance:none;background-image:url("data:image/svg+xml;utf8,<svg xmlns=
 
         <section>
           <h2>网页控制台</h2>
-          <div class="sub">TCP 8080，同一个端口同时支持 HTTP 和 HTTPS。从别的电脑访问必须用 https://。</div>
+          <div class="sub">TCP 8080。同一端口同时提供 HTTP 与 HTTPS，远程访问须使用 https://。</div>
 
           <div class="field-row">
             <label>启用</label>
@@ -215,7 +215,7 @@ select{appearance:none;background-image:url("data:image/svg+xml;utf8,<svg xmlns=
             <label>监听地址</label>
             <div class="field">
               <input type="text" value="0.0.0.0:8080">
-              <div class="help">同一个端口同时支持 HTTP 和 HTTPS；从别的电脑访问必须用 https://，否则浏览器拿不到 WebCodecs 硬解。</div>
+              <div class="help">TCP 监听地址，默认 0.0.0.0:8080。同一端口同时提供 HTTP 与 HTTPS；远程访问须使用 https://，否则浏览器无法启用 WebCodecs 硬件解码。</div>
             </div>
           </div>
 
@@ -223,15 +223,15 @@ select{appearance:none;background-image:url("data:image/svg+xml;utf8,<svg xmlns=
             <label>中继地址</label>
             <div class="field">
               <input type="text" value="127.0.0.1:4433">
-              <div class="help">网页控制台连接的中继，默认就是本机的中继。</div>
+              <div class="help">网页控制台所连接的中继地址，默认为本机中继。</div>
             </div>
           </div>
 
           <div class="field-row">
             <label>中继证书指纹</label>
             <div class="field">
-              <input type="text" placeholder="留空 = 首次连接时记住">
-              <div class="help">留空则第一次连接时记住中继证书（TOFU）。中继就在本机时影响不大；中继将来换证书，留空反而更省事。</div>
+              <input type="text" placeholder="留空则首次连接时记录">
+              <div class="help">留空时于首次连接记录中继证书（TOFU）。中继位于本机时影响有限；若中继更换证书，留空可免于手动更新。</div>
             </div>
           </div>
 
@@ -239,7 +239,7 @@ select{appearance:none;background-image:url("data:image/svg+xml;utf8,<svg xmlns=
             <label>显示名称</label>
             <div class="field">
               <input type="text" value="Airhand Web">
-              <div class="help">被控电脑托盘里「谁在控制」显示的名字。</div>
+              <div class="help">被控端托盘「当前控制方」中显示的名称。</div>
             </div>
           </div>
 
@@ -247,10 +247,10 @@ select{appearance:none;background-image:url("data:image/svg+xml;utf8,<svg xmlns=
             <label>访问密码</label>
             <div class="field">
               <div class="inline">
-                <input type="text" id="pw" value="Xk7mQ2pR9tVb4nHs" style="font-family:ui-monospace,Menlo,Consolas,monospace">
+                <input type="text" id="pw" value="Xk7mQ2pR9tVb4nHs" placeholder="留空则不校验" style="font-family:ui-monospace,Menlo,Consolas,monospace">
                 <button class="btn" id="btn-gen">生成密码</button>
               </div>
-              <div class="help">浏览器打开时会弹出登录框，用户名随意。留空表示任何人都能访问控制台（危险）。</div>
+              <div class="help">设置后浏览器将弹出 HTTP 基本认证对话框，用户名任意。留空则不校验身份，任何可达者均可使用控制台。</div>
             </div>
           </div>
 
@@ -258,7 +258,7 @@ select{appearance:none;background-image:url("data:image/svg+xml;utf8,<svg xmlns=
             <label>HTTPS 证书 SAN</label>
             <div class="field">
               <input type="text" value="192.168.1.1,airhand.lan">
-              <div class="help">写进自签名证书的域名或 IP，逗号分隔。填你实际访问用的地址，浏览器至少不会报「名称不匹配」（自签名警告仍然会有）。</div>
+              <div class="help">写入自签名证书的域名或 IP，以逗号分隔。建议与实际访问地址保持一致，以避免名称不匹配告警（自签名证书本身的告警仍会出现）。</div>
             </div>
           </div>
 
@@ -266,7 +266,7 @@ select{appearance:none;background-image:url("data:image/svg+xml;utf8,<svg xmlns=
             <label>数据目录</label>
             <div class="field">
               <input type="text" value="/etc/airhand/web">
-              <div class="help">证书、控制台身份（controller-key.txt）和中继信任记录所在目录。</div>
+              <div class="help">存放 HTTPS 证书、控制台身份（controller-key.txt）与中继信任记录的目录。</div>
             </div>
           </div>
 
@@ -286,7 +286,7 @@ select{appearance:none;background-image:url("data:image/svg+xml;utf8,<svg xmlns=
 
           <div class="note info">
             <span class="ic">i</span>
-            <span>改完配置需要重启对应服务才生效。中继换了证书，所有客户端都要重新填指纹。</span>
+            <span>配置修改后须重启对应服务方可生效。若中继证书更换，所有客户端均需重新填写指纹。</span>
           </div>
         </section>
       </div>
@@ -332,7 +332,7 @@ document.getElementById('btn-gen').onclick = function(){
   crypto.getRandomValues(buf);
   for (var i = 0; i < buf.length; i++) out += chars[buf[i] % chars.length];
   document.getElementById('pw').value = out;
-  toast('已生成新密码，点「保存并应用」后生效');
+  toast('已生成新密码，保存并应用后生效');
 };
 
 document.getElementById('btn-restart-relay').onclick = function(){ toast('airhand-server 已重启'); };
