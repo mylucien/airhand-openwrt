@@ -90,7 +90,7 @@ ss -lun 2>/dev/null | grep -q ':4433' || fail "UDP 4433 没在监听"
 echo "   ok"
 
 echo "== 4. 指纹一致性 =="
-LOG_FP=$(sed -n 's/.*Certificate SHA-256 fingerprint: \([0-9a-fA-F]*\).*/\1/p' "$WORK/server.log" | head -1)
+LOG_FP=$(grep -a 'Certificate SHA-256 fingerprint' "$WORK/server.log" | grep -oE '[0-9a-f]{64}' | head -1)
 [ -n "$LOG_FP" ] || { cat "$WORK/server.log" >&2; fail "日志里没有指纹行"; }
 SH_FP=$(sh "$WORK/root/usr/libexec/airhand/fingerprint.sh" "$WORK/srv/cert.pem")
 echo "   log=$LOG_FP"
@@ -124,7 +124,7 @@ code=$(curl -s -o /dev/null -w '%{http_code}' -u any:smoke-test-pw http://127.0.
 [ "$code" = "200" ] || fail "带密码访问首页应该 200，实际 $code"
 echo "   带凭据 -> 200 ok"
 
-curl -s -u any:smoke-test-pw http://127.0.0.1:8080/ | grep -qi '<div id="app"' \
+curl -s -u any:smoke-test-pw http://127.0.0.1:8080/ | grep -qi '<div id="root"' \
 	|| fail "首页不是控制台 HTML"
 echo "   首页 HTML ok"
 

@@ -16,6 +16,8 @@ OUTDIR="$5"
 PKG=luci-app-airhand
 PKGVER="${VERSION}-1"
 HERE=$(cd "$(dirname "$0")/.." && pwd)
+mkdir -p "$OUTDIR"
+OUTDIR=$(cd "$OUTDIR" && pwd)
 STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT
 
