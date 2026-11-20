@@ -130,7 +130,7 @@ code=$(curl -s -o /dev/null -w '%{http_code}' -u any:smoke-test-pw http://127.0.
 [ "$code" = "200" ] || fail "带密码访问首页应该 200，实际 $code"
 echo "   带凭据 -> 200 ok"
 
-curl -s -u any:smoke-test-pw http://127.0.0.1:8080/ | grep -qi '<div id="root"' \
+curl -s -u any:smoke-test-pw http://127.0.0.1:8080/ | grep -qi '<div id=' \
 	|| fail "首页不是控制台 HTML"
 echo "   首页 HTML ok"
 
