@@ -10,6 +10,12 @@
 set -eu
 
 IPK=$1
+case "$IPK" in
+	/*) ;;
+	*) IPK=$(cd "$(dirname "$IPK")" && pwd)/$(basename "$IPK") ;;
+esac
+[ -f "$IPK" ] || { echo "找不到 $IPK" >&2; exit 1; }
+
 WORK=$(mktemp -d)
 SRV_PID=""
 WEB_PID=""
