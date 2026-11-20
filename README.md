@@ -7,13 +7,19 @@
 
 ## 支持范围
 
-| 架构 | OpenWrt 包名 | 对应设备 |
-|---|---|---|
-| `x86_64` | `x86_64` | x86 软路由、PVE/ESXi 虚拟机、N100/N5105 之类 |
-| `aarch64_cortex-a53` | `aarch64_cortex-a53` | **airoha an7581**（EN7581，四核 A55） |
+| 架构 | OpenWrt 包名 | 对应设备 | 包格式 |
+|---|---|---|---|
+| `x86_64` | `x86_64` | x86 软路由、PVE/ESXi 虚拟机、N100/N5105 之类 | ipk（24.10）/ apk（25.12） |
+| `aarch64_cortex-a53` | `aarch64_cortex-a53` | **airoha an7581**（EN7581，四核 A55） | **只有 apk** |
 
-LuCI 侧跟随 **ImmortalWrt 24.10**（opkg + 客户端渲染的 LuCI JS 框架）。更老的 23.05 用的是同一套 JS 框架，
-但 18.06 / 19.07 那种 Lua 视图不兼容，不要装。
+⚠️ **ImmortalWrt 的稳定版（24.10.x、25.12.x）都没有 `airoha` target**，只有 snapshot 才有
+`targets/airoha/an7581`。所以：
+
+- 跑 an7581 的机器必然在 snapshot（或基于它的第三方固件）上 → 只能用 **apk**，且是 apk v3 格式。
+- 24.10 及更老的系统用 **opkg**，只能装 ipk。
+- 25.12 起 ImmortalWrt 也换成了 apk。
+
+LuCI 侧跟随 **ImmortalWrt 24.10 及以上的 LuCI JS 框架**（客户端渲染）。18.06 / 19.07 那种 Lua 视图不兼容。
 
 ## 它是怎么连的
 
@@ -32,21 +38,23 @@ LuCI 侧跟随 **ImmortalWrt 24.10**（opkg + 客户端渲染的 LuCI JS 框架�
 
 ## 安装
 
-从 [Releases](../../releases) 下对应架构的 ipk：
+从 [Releases](../../releases) 下对应架构的包：
 
 | 文件 | 用在哪 |
 |---|---|
-| `luci-app-airhand_<ver>_x86_64.ipk` | x86 软路由 / 虚拟机 |
-| `luci-app-airhand_<ver>_aarch64_cortex-a53.ipk` | airoha an7581 |
-
-**目前可用的稳定包是 [`v0.2.3-a197653`](../../releases/tag/v0.2.3-a197653)** —— 它是按上游 `v0.2.3` 标签编译的，
-能和官方 0.2.3 客户端配对上。`weekly` 那个预发布包跟的是上游 `main`（0.3.x），普通用户先别用。
-
-传到路由器上：
+| `*.ipk` | OpenWrt / ImmortalWrt **24.10**（opkg） |
+| `*.apk` | ImmortalWrt **25.12 / snapshot**（apk），an7581 只有这个可选 |
 
 ```sh
-opkg install luci-app-airhand_0.2.3-1_x86_64.ipk     # 换成你的架构
+# 24.10（opkg）
+opkg install luci-app-airhand_<ver>-1_x86_64.ipk
+
+# 25.12 / snapshot（apk，包没有签名，必须 --allow-untrusted）
+apk add --allow-untrusted luci-app-airhand-<ver>-r1.apk
 ```
+
+**注意版本要跟被控端客户端对得上**：现在 Releases 里同时有 `airhand 0.2.3` 和 `0.3.1` 两条线的产物，
+官方客户端安装包是 0.2.3，所以优先用 **airhand 版本 0.2.3** 的那个 release，别用 `weekly`（那是 main）。
 
 装完之后 LuCI 里会出现 **服务 → Airhand**，两个服务默认已启用（`airhand-server`、`airhand-web`）。
 服务日志：`logread -e airhand`。
@@ -151,8 +159,15 @@ WebCodecs 硬解只在安全上下文可用，用 `http://` 打开页面会把�
 指纹脚本和日志一致、网页控制台 401/200/HTTPS 首页正常，以及 ipk 结构和静态链接。
 
 `SDK` 那两个 job 会下载对应 target 的 ImmortalWrt SDK，把本仓库的 `luci-app-airhand/`
-当普通 package 塞进去，`make package/luci-app-airhand/compile`，然后检查产出的 ipk
-架构对不对，x86_64 那份还会再跑一遍冒烟测试。也就是说 `Makefile` 不是摆设，每次 CI 都真编。
+当普通 package 塞进去，`make package/luci-app-airhand/compile`，然后检查产出包的架构对不对：
+
+| 架构 | SDK | 产出 |
+|---|---|---|
+| `x86_64` | `25.12.2` / `x86/64` | `luci-app-airhand-<ver>-r1.apk` |
+| `aarch64_cortex-a53` | `snapshot` / `airoha/an7581` | `luci-app-airhand-<ver>-r1.apk` |
+
+也就是说 `Makefile` 不是摆设，每次 CI 都拿真 SDK 编一遍，编出来的包还必须架构正确。
+另外 x86_64 的 ipk 会被解包实机跑（见上），所以二进制本身的行为也是真的测过的。
 
 ### 版本兼容很重要
 
@@ -161,7 +176,7 @@ airhand 是 WIP 项目，协议会变：
 - `main`（0.3.x）明确要求**中继、控制台、客户端同 revision**，混搭会连不上。
 - `v0.2.3` 起协议支持版本协商，`0.2.3` 的客户端能配 `0.2.3` 的服务端。
 
-所以：**用官方 0.2.3 安装包当被控端时，用 [`v0.2.3-a197653`](../../releases/tag/v0.2.3-a197653) 那个包**，
+所以：**用官方 0.2.3 安装包当被控端时，就用按 `ref=v0.2.3` 构建的那个 release**，
 不要用 `weekly`（那是 main）。等上游出正式版，改 `ref` 重新 dispatch 一次就行。
 
 ## 在 SDK / 固件里编译（可选）
