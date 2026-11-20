@@ -14,7 +14,10 @@ VERSION="$4"
 OUTDIR="$5"
 
 PKG=luci-app-airhand
-PKGVER="${VERSION}-1"
+# 打包修订号跟 Makefile 保持一致，避免 ipk 和 apk 出现两个不同的 -rN
+PKGREL=$(sed -n 's/^PKG_RELEASE:=//p' "$HERE/luci-app-airhand/Makefile" 2>/dev/null | head -1)
+[ -n "${PKGREL:-}" ] || PKGREL=1
+PKGVER="${VERSION}-${PKGREL}"
 HERE=$(cd "$(dirname "$0")/.." && pwd)
 mkdir -p "$OUTDIR"
 OUTDIR=$(cd "$OUTDIR" && pwd)
