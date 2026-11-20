@@ -271,6 +271,11 @@ jobs:
           mkdir -p sdkout
           find sdk/bin -name 'luci-app-airhand*.apk' -exec cp {} sdkout/ \; || true
           find sdk/bin -name 'luci-app-airhand*.ipk' -exec cp {} sdkout/ \; || true
+          # apk 的文件名里没有架构，两个架构会互相覆盖，这里补上
+          for f in sdkout/*.apk; do
+            [ -e "$f" ] || continue
+            mv "$f" "${f%.apk}_${{ matrix.arch }}.apk"
+          done
           ls -l sdkout
           pkg=$(ls sdkout/* 2>/dev/null | head -1)
           [ -n "$pkg" ] || { echo "::error::SDK 没有产出包"; exit 1; }
@@ -281,8 +286,8 @@ jobs:
               ver=$(ar p "$pkg" control.tar.gz | tar xzO ./control | sed -n 's/^Version: //p')
               ;;
             *.apk)
-              arch=$(grep -ao 'arch:[a-z0-9_-]*' build.log | head -1 | cut -d: -f2)
-              ver=$(grep -ao 'version:[0-9][0-9A-Za-z._-]*' build.log | head -1 | cut -d: -f2)
+              arch=$(grep -ao 'info "arch:[^"]*' build.log | head -1 | sed 's/.*arch://')
+              ver=$(grep -ao 'info "version:[^"]*' build.log | head -1 | sed 's/.*version://')
               ;;
           esac
           echo "包信息：arch=$arch version=$ver"
